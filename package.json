@@ -6,6 +6,7 @@
     "dev": "bun run --watch src/index.ts"
   },
   "dependencies": {
+    "@elysia/jwt": "^1.4.2",
     "@elysia/openapi": "^1.4.15",
     "@sinclair/typebox": "^0.34.49",
     "elysia": "latest",
