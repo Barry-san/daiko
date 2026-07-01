@@ -1,65 +1,76 @@
-import type { PreContext } from "elysia";
+import type { Context } from "elysia";
 import { StatusCodes } from "http-status-codes";
-import { redisClient } from "../db/redis";
-import { AppError } from "../lib/error";
+import { redisClient } from "@/db/redis";
+import { AppError } from "@/lib/error";
 
-function getIp(c: PreContext) {
-  return c.server?.requestIP(c.request)?.address
+function getIp(c: Context) {
+  const ip = c.request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() || c.server?.requestIP(c.request)?.address
+  return ip
 }
-
 
 function createRateLimiter({
   capacity,
-  refilRate,
-  redisKeyPrefix
-
-}: { capacity: number, refilRate: number, redisKeyPrefix: string }) {
+  refillRate,
+  redisKeyPrefix,
+}: {
+  capacity: number;
+  refillRate: number;
+  redisKeyPrefix: string;
+}) {
   const MAX_BUCKET_CAPACITY = capacity;
-  const REFIL_RATE = refilRate
+  const REFILL_RATE = refillRate;
 
   async function getCurrentBucket(ip: string) {
-    const bucket = await redisClient.get(`${redisKeyPrefix}:${ip}:bucket`)
+    const bucket = await redisClient.get(`${redisKeyPrefix}:${ip}:bucket`);
     if (bucket) {
-      return Number(bucket)
+      const result = Number(bucket)
+      return Number.isNaN(result) ? 0 : result;
     }
     await redisClient.set(`${redisKeyPrefix}:${ip}:bucket`, `${MAX_BUCKET_CAPACITY}`);
-    return MAX_BUCKET_CAPACITY
+    return MAX_BUCKET_CAPACITY;
   }
 
   async function getTimeFromLastRequestInSeconds(ip: string) {
-    const lastRequest = await redisClient.get(`${redisKeyPrefix}:${ip}:last`)
-    const now = Date.now()
-    await redisClient.set(`${redisKeyPrefix}:${ip}:last`, `${now}`);
+    const lastRequest = await redisClient.get(`${redisKeyPrefix}:${ip}:last`);
     if (!lastRequest) return 0;
-    return Math.round((now - Number(lastRequest)) / 1000)
+    const now = Date.now();
+    await redisClient.set(`${redisKeyPrefix}:${ip}:last`, `${now}`);
+    return Math.round((now - Number(lastRequest)) / 1000);
   }
 
-
-  return async (c: PreContext) => {
+  return async (c: Context) => {
     const userIP = getIp(c) || "";
-    const bucket = await getCurrentBucket(userIP)
+    const bucket = await getCurrentBucket(userIP);
 
     if (bucket < 1) {
-      const interval = await getTimeFromLastRequestInSeconds(userIP)
-      const newBucketCapacity = Math.min(MAX_BUCKET_CAPACITY, bucket + (interval * REFIL_RATE))
+      const interval = await getTimeFromLastRequestInSeconds(userIP);
+      const newBucketCapacity = Math.min(
+        MAX_BUCKET_CAPACITY,
+        bucket + (interval * REFILL_RATE),
+      );
 
-      await
-        redisClient.set(`${redisKeyPrefix}:${userIP}:bucket`, `${newBucketCapacity}`)
-      throw new AppError({
-        status: StatusCodes.TOO_MANY_REQUESTS,
-        message: "Pump the brakes."
-      })
+      await redisClient.set(`${redisKeyPrefix}:${userIP}:bucket`, `${newBucketCapacity}`);
+      if (newBucketCapacity < 1)
+        throw new AppError({
+          status: StatusCodes.TOO_MANY_REQUESTS,
+          message: "Too many requests.",
+        });
     }
 
-    const interval = await getTimeFromLastRequestInSeconds(userIP)
-    const newBucketCapacity = Math.min(MAX_BUCKET_CAPACITY, bucket - 1 + (interval * REFIL_RATE))
-    await redisClient.set(`${redisKeyPrefix}:${userIP}:bucket`, `${newBucketCapacity}`)
-    console.log(bucket)
-
-
-  }
+    const interval = await getTimeFromLastRequestInSeconds(userIP);
+    const newBucketCapacity = Math.min(MAX_BUCKET_CAPACITY, bucket - 1 + interval * REFILL_RATE);
+    await redisClient.set(`${redisKeyPrefix}:${userIP}:bucket`, `${newBucketCapacity}`);
+  };
 }
 
 export const authRateLimiter = createRateLimiter({
-  capacity: 60, refilRate: 1, redisKeyPrefix: "authLimit"
-})
+  capacity: 60,
+  refillRate: 1,
+  redisKeyPrefix: "authLimit",
+});
+
+export const OTPRateLimiter = createRateLimiter({
+  refillRate: 0.05,
+  capacity: 1,
+  redisKeyPrefix: "otpLimit",
+});
