@@ -1,5 +1,5 @@
-import { SQL } from "bun"
-import { ENV } from "../lib/env"
+import { SQL } from "bun";
+import { ENV } from "@/lib/env";
 
 export const pg = new SQL({
   adapter: ENV.DB_ADAPTER,
@@ -9,6 +9,6 @@ export const pg = new SQL({
   database: ENV.DB_NAME,
   password: ENV.DB_PASSWORD,
   onconnect: () => {
-    console.log("Connected to database")
-  }
-})
+    console.log("Connected to database");
+  },
+});
