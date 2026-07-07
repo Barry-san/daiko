@@ -8,7 +8,6 @@ export const pg = new SQL({
   port: ENV.DB_PORT,
   database: ENV.DB_NAME,
   password: ENV.DB_PASSWORD,
-  onconnect: () => {
-    console.log("Connected to database");
-  },
+  onconnect: () => { },
+  max: 20,
 });
