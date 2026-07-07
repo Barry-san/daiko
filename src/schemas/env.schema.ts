@@ -23,6 +23,9 @@ export const envSchema = t.Object({
 
   GITHUB_CLIENT_ID: t.String(),
   GITHUB_CLIENT_SECRET: t.String(),
+  GITHUB_REDIRECT_URI: t.String({
+    format: "uri",
+  }),
 
   RESEND_API_KEY: t.String()
 });

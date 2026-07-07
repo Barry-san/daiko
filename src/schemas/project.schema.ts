@@ -6,6 +6,16 @@ export const CreateProjectSchema = t.Object({
     minLength: 3,
   }),
   content: t.String(),
+
+  config: t.Object({
+    language: t.Enum({
+      bun: "bun",
+      go: "go",
+      node: "node",
+      python: "python"
+    }),
+    env: t.Optional(t.Record(t.String(), t.String()))
+  })
 });
 
 export const uploadProjectSchema = t.Object({
@@ -15,5 +25,10 @@ export const uploadProjectSchema = t.Object({
   }),
 });
 
+export const projectProgressSchema = t.Object({
+  projectID: t.String()
+})
+
 export type CreateProject = UnwrapSchema<typeof CreateProjectSchema>;
 export type UploadProject = UnwrapSchema<typeof uploadProjectSchema>;
+export type ProjectProgres = UnwrapSchema<typeof projectProgressSchema>
