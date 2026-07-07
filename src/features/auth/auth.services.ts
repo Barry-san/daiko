@@ -5,11 +5,11 @@ import { ENV } from "@/lib/env";
 import { AppError } from "@/lib/error";
 import type { LoginBody, SignupBody } from "@/schemas/auth.schema";
 import { handleCreateOTP } from "../otp/otp.services";
-import { createNewUser, getUser } from "./auth.repo";
+import type { OauthUser } from "./auth.repo";
+import { createNewUser, createOauthUser, getUser } from "./auth.repo";
 
-export async function handleLogin(params: LoginBody) {
-  const user = await getUser(params.email.toLowerCase());
-  console.log(user);
+export async function handleLogin(db: Bun.SQL, params: LoginBody) {
+  const user = await getUser(db, params.email.toLowerCase());
   if (!user)
     throw new AppError({
       message: "Invalid credentials",
@@ -22,7 +22,6 @@ export async function handleLogin(params: LoginBody) {
       status: StatusCodes.BAD_REQUEST,
     });
   } else {
-    console.log("user : ", user);
     const accessToken = await new SignJWT({ sub: user.user_id, isVerified: user.is_verified })
       .setIssuedAt()
       .setExpirationTime("15min")
@@ -49,17 +48,17 @@ export async function handleLogin(params: LoginBody) {
   }
 }
 
-export async function handleSignup({ email, password, username }: SignupBody) {
+export async function handleSignup(db: Bun.SQL, { email, password, username }: SignupBody) {
   const user_id = randomUUIDv7();
-  const password_hash = Bun.password.hashSync(password, { algorithm: "argon2id" });
-  const user = await createNewUser({
+  const password_hash = await Bun.password.hash(password, { algorithm: "argon2id" });
+  const user = await createNewUser(db, {
     user_id,
     password_hash,
     email: email.toLowerCase(),
     username,
   });
-  const { data } = await handleLogin({ email, password });
-  await handleCreateOTP(data.id);
+  const { data } = await handleLogin(db, { email, password });
+  await handleCreateOTP(db, data.id);
 
   return { user, ...data };
 }
@@ -72,10 +71,29 @@ export async function handleRefresh(refreshToken: string) {
       .setProtectedHeader({ alg: "HS256" })
       .sign(secret);
     return accessToken;
-  } catch (_e) {
+  } catch {
     throw new AppError({
       status: StatusCodes.UNAUTHORIZED,
       message: "Log in",
     });
   }
+}
+
+export async function handleOauth(db: Bun.SQL, user: Omit<OauthUser, "created_at">) {
+  const [saved] = await createOauthUser(db, user)
+  const accessToken = await new SignJWT({ sub: saved.user_id, is_verified: saved.is_verified })
+    .setIssuedAt()
+    .setExpirationTime("15min")
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(ENV.JWT_ISSUER)
+    .sign(new TextEncoder().encode(ENV.JWT_SECRET));
+
+  const refreshToken = await new SignJWT({ sub: saved.user_id, is_verified: saved.is_verified })
+    .setIssuedAt()
+    .setExpirationTime("30d")
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(ENV.JWT_ISSUER)
+    .sign(new TextEncoder().encode(ENV.JWT_SECRET));
+
+  return { user: saved, accessToken, refreshToken }
 }

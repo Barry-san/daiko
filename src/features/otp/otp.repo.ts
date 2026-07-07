@@ -1,5 +1,4 @@
 import { sql } from "bun";
-import { pg } from "@/db/pgdb";
 
 type OTP = {
   otp: string;
@@ -7,19 +6,17 @@ type OTP = {
   user_id: string;
 };
 
-export async function createOTP(data: OTP) {
+export async function createOTP(db: Bun.SQL, data: OTP) {
   try {
-    const res = await pg`INSERT into otp ${sql(data)} returning *`;
-    console.log(res);
+    await db`INSERT into otp ${sql(data)} returning *`;
     return true;
-  } catch (e) {
-    console.log(e);
+  } catch {
     return false;
   }
 }
 
-export async function verifyUser(userID: string) {
-  const res = await pg`
+export async function verifyUser(db: Bun.SQL, userID: string) {
+  const res = await db`
     WITH updated_user AS (
       UPDATE users
       SET is_verified = true
@@ -36,31 +33,28 @@ export async function verifyUser(userID: string) {
   return res;
 }
 
-export async function createEmailOTP({
-  user_id,
-  otp,
-  email_id,
-}: {
-  user_id: string;
-  otp: string;
-  email_id: string;
-}) {
-  const user = await pg`SELECT email from users where user_id = ${user_id}`;
-  const values = {
+export async function createEmailOTP(
+  db: Bun.SQL,
+  {
+    user_id,
+    otp,
     email_id,
-    recepient: user[0].email,
-    content: otp,
-    type: "OTP",
-    status: "pending",
-  };
-
-  await pg`INSERT into emails ${sql(values)} `;
+  }: {
+    user_id: string;
+    otp: string;
+    email_id: string;
+  },
+) {
+  await db`
+    INSERT INTO emails (email_id, recipient, content, type, status)
+    SELECT ${email_id}, email, ${otp}, 'OTP', 'pending'
+    FROM users WHERE user_id = ${user_id}
+  `;
   return true;
 }
 
-export async function getOTP(userID: string) {
-  console.log(userID);
+export async function getOTP(db: Bun.SQL, userID: string) {
   const res: OTP[] =
-    await pg`SELECT * from otp where user_id = ${userID} order by expires_at DESC`;
+    await db`SELECT * from otp where user_id = ${userID} order by expires_at DESC LIMIT 1`;
   return res;
 }
