@@ -10,7 +10,9 @@ export const loginBody = t.Object({
 
 export const signupBody = t.Object({
   email: t.String({ format: "email" }),
-  password: t.String(),
+  password: t.String({
+    minLength: 6
+  }),
   username: t.String(),
 });
 
