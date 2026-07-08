@@ -1,10 +1,10 @@
 import postgres from "postgres";
 import { Resend } from "resend";
 import { pg } from "@/db/pgdb";
+import { sendEmail } from "@/lib/email";
 import { ENV } from "@/lib/env";
 import { logger } from "@/lib/logger";
 
-const resend = new Resend(ENV.RESEND_API_KEY);
 const CHANNEL = "email_queue";
 const MAX_RETRIES = 3;
 const SWEEP_INTERVAL_MS = 60_000;
@@ -13,7 +13,7 @@ type EmailRow = {
   email_id: string;
   recipient: string;
   content: string;
-  type: string;
+  type: "OTP" | "RESET";
   status: string;
   retry_count: number | null;
   failed_at: Date | null;
@@ -22,19 +22,7 @@ type EmailRow = {
 async function processEmail(row: EmailRow) {
   if (row.status !== "pending") return;
 
-  const result = await resend.emails.send({
-    to: row.recipient,
-    subject: "Verify your account",
-    from: "hello@mubarak.work",
-    template: {
-      id: "ee0b45ae-ad2d-4483-81fd-c450e53e6291",
-      variables: {
-        otp_code: row.content,
-        company_name: "Daiko",
-        first_name: "user",
-      },
-    },
-  });
+  const result = await sendEmail(row.type, { recipient: row.recipient, variables: { otp_code: row.content } })
 
   if (!result.error) {
     logger.info({ email_id: row.email_id }, "Email sent");
