@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { StatusCodes } from "http-status-codes";
 import { AppError } from "@/lib/error";
+import type { User } from "@/types";
 
 type NewUser = {
   user_id: string;
@@ -42,15 +43,6 @@ export async function createOauthUser(db: Bun.SQL, user: Omit<OauthUser, "create
     })
   }
 }
-
-type User = {
-  user_id: string;
-  username: string;
-  email: string;
-  password_hash: string;
-  create_at: Date;
-  is_verified: boolean;
-};
 
 export type OauthUser = {
   oauth_id: string,
