@@ -1,30 +1,51 @@
+import { randomUUIDv7 } from "bun";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { Readable } from "node:stream";
-import { randomUUIDv7 } from "bun";
 import Docker from "dockerode";
 import postgres from "postgres";
 import { extractArchive } from "zip-bun";
 import { pg } from "@/db/pgdb";
-import { createDeployment } from "@/features/deployments/deployments.repo";
 import { ENV } from "@/lib/env";
+import { decryptEnv } from "@/lib/crypto";
 import { logger } from "@/lib/logger";
-import type { ProjectConfig } from "@/types";
+import type { LanguageOptions, ProjectConfig } from "@/types";
+import type { ProjectSource } from "@daiko/shared";
+import { createDeployment } from "@/features/deployments/deployments.repo";
 import type { Job } from "@/lib/jobs";
+import { cloneRepo } from "./git";
 import { buildDockerFile } from "./utils";
+import { cleanupSites, disableSite, enableSite } from "./nginx";
 
-const CHANNEL = "build_queue";
-const SWEEP_INTERVAL_MS = 60_000;
+const CHANNEL = "build_queue";const SWEEP_INTERVAL_MS = 60_000;
 
 type JobDetails = {
   name: string,
-  content: string,
+  source: ProjectSource,
   config: ProjectConfig
 }
 
+const LANGUAGE_COMMANDS: Record<LanguageOptions, { buildCommand: string; startCommand: string }> = {
+  bun: { buildCommand: "bun install", startCommand: "bun run dev" },
+  node: { buildCommand: "npm ci || npm install", startCommand: "npm run dev" },
+  go: { buildCommand: "go build -o app .", startCommand: "./app" },
+  python: { buildCommand: "pip install -r requirements.txt", startCommand: "python main.py" },
+};
+
+type BuildEvent =
+  | { type: "log"; line: string; time: number }
+  | { type: "status"; status: "running" | "complete" | "failed"; time: number; deployment_url?: string };
+
 function log(...args: unknown[]) {
   logger.info(args.join(" "));
+}
+
+async function notifyBuild(jobId: string, event: BuildEvent) {
+  const channel = `build_log_${jobId}`;
+  try {
+    await pg`SELECT pg_notify(${channel}, ${JSON.stringify(event)})`;
+  } catch {}
 }
 
 async function allocatePort(projectId: string): Promise<number | null> {
@@ -65,12 +86,35 @@ function cleanMacArtifacts(dir: string) {
   }
 }
 
+function flattenSingleRoot(dir: string) {
+  const entries = readdirSync(dir);
+  if (entries.length !== 1) return;
+  const single = resolve(dir, entries[0]);
+  if (!statSync(single).isDirectory()) return;
+  log(`  Archive: flattening ${entries[0]}...`);
+  for (const entry of readdirSync(single)) {
+    renameSync(resolve(single, entry), resolve(dir, entry));
+  }
+  rmSync(single, { recursive: true });
+}
+
+function liftSubdir(dir: string, subdir: string) {
+  const sub = resolve(dir, subdir);
+  if (!statSync(sub).isDirectory()) {
+    throw new Error(`subdirectory "${subdir}" not found in repository`);
+  }
+  for (const entry of readdirSync(sub)) {
+    renameSync(resolve(sub, entry), resolve(dir, entry));
+  }
+  rmSync(sub, { recursive: true });
+}
+
 async function processJob(job: Job) {
   let port: number | null = null;
   let projectId = ''
   try {
     const details: JobDetails = JSON.parse(job.details);
-    const location = details.content
+    const source = details.source
     projectId = job.project_id;
 
     const docker = new Docker();
@@ -78,6 +122,7 @@ async function processJob(job: Job) {
     log(`Processing build job ${projectId}...`);
 
     await pg`UPDATE jobs SET status = 'running', started_at = NOW() WHERE job_id = ${job.job_id}`;
+    await notifyBuild(job.job_id, { type: "status", status: "running", time: Date.now() });
 
     log(`  Docker: checking connectivity...`);
     await new Promise<void>((resolve, reject) => {
@@ -91,34 +136,43 @@ async function processJob(job: Job) {
     log(`  Port: allocated → ${port}`);
 
     const extractPath = resolve(process.cwd(), "deployments", projectId);
-    log(`  bout to extract zip path`)
-    const zipPath = resolve(process.cwd(), "uploads", location);
+    rmSync(extractPath, { recursive: true, force: true });
 
-    log(`  Archive: extracting...`);
-    await extractZip(zipPath, extractPath);
-    log(`  Archive: extracted`);
-    cleanMacArtifacts(extractPath);
 
-    const entries = readdirSync(extractPath);
-    if (entries.length === 1) {
-      const single = resolve(extractPath, entries[0]);
-      if (statSync(single).isDirectory()) {
-        log(`  Archive: flattening ${entries[0]}...`);
-        for (const entry of readdirSync(single)) {
-          renameSync(resolve(single, entry), resolve(extractPath, entry));
-        }
-        rmSync(single, { recursive: true });
+    if (source.type === "git") {
+      log(`  Git: cloning ${source.url}${source.branch ? ` (${source.branch})` : ""}...`);
+      await cloneRepo({
+        url: source.url,
+        branch: source.branch,
+        destDir: extractPath,
+        onLog: (line) => {
+          log(`  Git: ${line}`);
+          notifyBuild(job.job_id, { type: "log", line, time: Date.now() });
+        },
+      });
+      log(`  Git: cloned`);
+      cleanMacArtifacts(extractPath);
+      if (source.subdir) {
+        log(`  Git: lifting subdir ${source.subdir}...`);
+        liftSubdir(extractPath, source.subdir);
       }
+    } else {
+      log(`  Archive: extracting...`);
+      await extractZip(resolve(process.cwd(), "uploads", source.uri), extractPath);
+      log(`  Archive: extracted`);
+      cleanMacArtifacts(extractPath);
     }
+    flattenSingleRoot(extractPath);
 
     log(`  Dockerfile: generating...`);
+    const commands = LANGUAGE_COMMANDS[details.config.language];
     const dockerfileBytes = await buildDockerFile({
       language: details.config.language,
       config: {
-        buildCommand: "bun install",
+        buildCommand: commands.buildCommand,
         port: port.toString(),
-        startCommand: "bun run dev",
-        env: details.config.env
+        startCommand: commands.startCommand,
+        env: decryptEnv(details.config.env)
       },
     });
     await Bun.write(`${extractPath}/Dockerfile`, dockerfileBytes);
@@ -151,10 +205,21 @@ async function processJob(job: Job) {
           resolvePromise();
         },
         (event) => {
-          if (event?.stream) logger.debug({ stream: event.stream.trim() }, "Docker build output");
-          if (event?.error) buildErrors.push(event.error);
-          if (event?.errorDetail?.message)
+          if (event?.stream) {
+            const line = event.stream.trim();
+            if (line) {
+              logger.debug({ stream: line }, "Docker build output");
+              notifyBuild(job.job_id, { type: "log", line, time: Date.now() });
+            }
+          }
+          if (event?.error) {
+            buildErrors.push(event.error);
+            notifyBuild(job.job_id, { type: "log", line: event.error, time: Date.now() });
+          }
+          if (event?.errorDetail?.message) {
             buildErrors.push(event.errorDetail.message);
+            notifyBuild(job.job_id, { type: "log", line: event.errorDetail.message, time: Date.now() });
+          }
         },
       );
     });
@@ -180,28 +245,47 @@ async function processJob(job: Job) {
     const containerId = containerInfo.Id;
     log(`  Container: started → ${containerId.slice(0, 12)}`);
 
+    const deploymentUrl = enableSite(details.name, projectId, port);
+    log(`  Nginx: site enabled → ${deploymentUrl}`);
+
     log(`  Deployment: recording...`);
     await createDeployment(pg, {
       deployment_id: randomUUIDv7(),
       project_id: projectId,
       port,
       container_id: containerId,
+      deployment_url: deploymentUrl,
     });
 
     await pg`
       UPDATE jobs SET status = 'complete', completed_at = NOW()
       WHERE job_id = ${job.job_id}
     `;
+    await notifyBuild(job.job_id, { type: "status", status: "complete", time: Date.now(), deployment_url: deploymentUrl });
 
     log(`Done — ${projectId} deployed on port ${port}`);
+
+    if (source.type === "zip") {
+      try {
+        rmSync(resolve(process.cwd(), "uploads", source.uri));
+        log(`  Cleanup: removed upload ${source.uri}`);
+      } catch {}
+    }
+
+    try {
+      rmSync(extractPath, { recursive: true, force: true });
+      log(`  Cleanup: removed deployment directory`);
+    } catch {}
   } catch (e) {
     log(`Build failed for ${projectId}:`, e);
 
     if (port) await freePort(projectId);
+    disableSite(projectId);
 
     await pg`
       UPDATE jobs SET status = 'failed' WHERE job_id = ${job.job_id}
     `;
+    await notifyBuild(job.job_id, { type: "status", status: "failed", time: Date.now() });
   }
 }
 
@@ -255,6 +339,9 @@ async function cleanupStaleState(docker: Docker) {
     SET status = 'free', project_id = NULL, allocated_at = NULL
     WHERE status = 'allocated'
   `;
+
+  log("Cleanup: removing stale nginx configs...");
+  cleanupSites();
 }
 
 async function startBuildWorker() {

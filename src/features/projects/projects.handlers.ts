@@ -1,4 +1,5 @@
-import type { CreateProject, ProjectProgres, UploadProject } from "@/schemas/project.schema";
+import type { CreateProjectBody, ProjectProgressParams } from "@daiko/shared";
+import type { UploadProject } from "@/schemas/project.schema";
 import { getProjectStatus } from "./projects.repo";
 import { getProjects, handleNewProject, handleProjectUpload } from "./projects.services";
 
@@ -11,10 +12,10 @@ export const fetchUserProjects = async ({ user, db }: { user: string; db: Bun.SQ
   };
 };
 
-export const createProject = async ({ user, body, db }: { body: CreateProject; user: string; db: Bun.SQL }) => {
-  const { name, content, config } = body as CreateProject;
+export const createProject = async ({ user, body, db }: { body: CreateProjectBody; user: string; db: Bun.SQL }) => {
+  const { name, source, config } = body as CreateProjectBody;
 
-  const project = { name, content, config };
+  const project = { name, source, config };
   const res = await handleNewProject(db, {
     userID: user,
     project,
@@ -33,12 +34,12 @@ export const uploadProject = async ({ body }: { body: UploadProject; user: strin
 
   return {
     data: {
-      job: res,
+      ...res,
     },
   };
 };
 
-export const checkProjectStatus = async ({ params, db }: { params: ProjectProgres; db: Bun.SQL }) => {
+export const checkProjectStatus = async ({ params, db }: { params: ProjectProgressParams; db: Bun.SQL }) => {
   const { projectID } = params;
   const projectStatus = await getProjectStatus(db, projectID)
   console.log(projectStatus)

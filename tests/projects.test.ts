@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeAll, afterAll, beforeEach } from "bun:test";
-import { handleNewProject, getProjects } from "../src/features/projects/projects.services";
-import { deleteProject } from "../src/features/projects/projects.repo";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { createNewUser } from "../src/features/auth/auth.repo";
+import { deleteProject } from "../src/features/projects/projects.repo";
+import { getProjects, handleNewProject } from "../src/features/projects/projects.services";
 import { createTestDb, emailForTest, newId, runMigrations, truncateAll } from "./setup";
 
 describe("projects", () => {
@@ -32,12 +32,12 @@ describe("projects", () => {
     it("creates a project and returns it", async () => {
       const result = await handleNewProject(db, {
         userID: userId,
-        project: { name: "My Project", content: "console.log('hello')" },
+        project: { name: "My Project", source: { type: "zip", uri: "upload.zip" }, config: { language: "go", env: {} } },
       });
 
       expect(result).toBeDefined();
       expect(result.project_name).toBe("My Project");
-      expect(result.content).toBe("console.log('hello')");
+      expect(result.content).toBe(JSON.stringify({ type: "zip", uri: "upload.zip" }));
       expect(result.author).toBe(userId);
       expect(result.project_id).toBeString();
     });
@@ -59,8 +59,8 @@ describe("projects", () => {
         password_hash: "not-used",
       });
 
-      await handleNewProject(db, { userID: userId, project: { name: "My Project", content: "code" } });
-      await handleNewProject(db, { userID: otherUserId, project: { name: "Other's Project", content: "code" } });
+      await handleNewProject(db, { userID: userId, project: { name: "My Project", source: { type: "zip", uri: "a.zip" }, config: { language: "bun" } } });
+      await handleNewProject(db, { userID: otherUserId, project: { name: "Other's Project", source: { type: "git", url: "https://github.com/owner/repo", branch: "main" }, config: { language: "python" } } });
 
       const myProjects = await getProjects(db, userId);
       expect(myProjects.length).toBe(1);
@@ -72,7 +72,7 @@ describe("projects", () => {
     it("soft-deletes a project", async () => {
       const result = await handleNewProject(db, {
         userID: userId,
-        project: { name: "To Delete", content: "delete me" },
+        project: { name: "To Delete", source: { type: "zip", uri: "b.zip" }, config: { language: "node" } },
       });
 
       const deleted = await deleteProject(db, result.project_id);

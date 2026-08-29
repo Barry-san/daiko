@@ -27,5 +27,12 @@ export const envSchema = t.Object({
     format: "uri",
   }),
 
-  RESEND_API_KEY: t.String()
+  RESEND_API_KEY: t.String(),
+  PASSWORD_RESET_EMAIL_TEMPLATE: t.String({ format: "uuid" }),
+  OTP_EMAIL_TEMPLATE: t.String({ format: "uuid" }),
+
+  BASE_URL: t.String({ format: "uri" }),
+  FRONTEND_URL: t.String({ format: "uri", default: "http://localhost:5173" }),
+
+  ENCRYPTION_KEY: t.Optional(t.String({ minLength: 64, maxLength: 64 })),
 });

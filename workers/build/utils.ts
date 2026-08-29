@@ -1,4 +1,4 @@
-type LanguageOptions = "node" | "go" | "python" | "bun";
+import type { LanguageOptions } from "@/types";
 
 type DeploymentConfig = {
   buildCommand: string;
@@ -10,7 +10,6 @@ type DeploymentConfig = {
 export async function buildDockerFile({ language, config }: { language: LanguageOptions, config: DeploymentConfig }) {
   let template = await Bun.file(`templates/${language}.dockerfile`).text();
   const env = buildEnv(config.env)
-  console.log("the env : ", env)
 
   template = template
     .replace("{{BUILD_COMMAND}}", config.buildCommand)
@@ -24,9 +23,13 @@ export async function buildDockerFile({ language, config }: { language: Language
 
 function buildEnv(env: Record<string, string> | undefined) {
   if (!env) return ""
-  let envString = `ENV `
-  for (const i in env) {
-    envString += `${i}=${env[i]} `
+  const lines: string[] = []
+  for (const key in env) {
+    if (/[\r\n]/.test(key) || /[\r\n]/.test(env[key])) {
+      throw new Error(`Env var "${key}" contains a newline and was rejected`);
+    }
+    const value = env[key].replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    lines.push(`ENV ${key}="${value}"`);
   }
-  return envString
+  return lines.join("\n")
 }

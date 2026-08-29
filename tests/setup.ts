@@ -3,10 +3,10 @@ import { randomUUIDv7, SQL } from "bun";
 // Read connection params from process.env (set by preload.ts + optional TEST_DB_*).
 // We do NOT import @/lib/env here so there is zero coupling between the test
 // harness and the application's env-schema module.
-function dbUser()    { return process.env.TEST_DB_USER     ?? "postgres" }
-function dbPass()    { return process.env.TEST_DB_PASSWORD  ?? "" }
-function dbName()    { return process.env.TEST_DB_NAME      ?? "daiko_test" }
-function dbPort()    { return Number(process.env.TEST_DB_PORT ?? "5432") }
+function dbUser() { return process.env.TEST_DB_USER ?? "postgres" }
+function dbPass() { return process.env.TEST_DB_PASSWORD ?? "" }
+function dbName() { return process.env.TEST_DB_NAME ?? "daiko_test" }
+function dbPort() { return Number(process.env.TEST_DB_PORT ?? "5432") }
 
 export function createTestDb(): SQL {
   return new SQL({
@@ -41,6 +41,17 @@ export async function runMigrations(db: SQL) {
   `;
 
   await db`
+    CREATE TABLE IF NOT EXISTS sessions (
+      session_id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      created_at timestamptz NOT NULL DEFAULT NOW(),
+      expires_at timestamptz NOT NULL,
+      last_used_at timestamptz NOT NULL DEFAULT NOW(),
+      revoked_at timestamptz
+    )
+  `;
+
+  await db`
     CREATE TABLE IF NOT EXISTS emails (
       email_id uuid NOT NULL PRIMARY KEY,
       recipient varchar(255) NOT NULL,
@@ -64,10 +75,30 @@ export async function runMigrations(db: SQL) {
       deleted_at timestamptz
     )
   `;
-}
+
+
+  await db`   CREATE TABLE IF NOT EXISTS jobs(
+    job_id uuid primary key,
+    author uuid,
+    project_id uuid,
+    name varchar(20),
+    created_at timestamptz DEFAULT NOW(),
+    started_at timestamptz,
+    completed_at timestamptz,
+    status varchar(10),
+    details text,
+
+    constraint fk_project
+    foreign key(project_id)
+    REFERENCES projects(project_id),
+
+    constraint fk_users
+    foreign key(author)
+    REFERENCES users(user_id)
+    )`}
 
 export async function truncateAll(db: SQL) {
-  await db`TRUNCATE TABLE otp, emails, projects, users CASCADE`;
+  await db`TRUNCATE TABLE otp, sessions, emails, projects, users CASCADE`;
 }
 
 export function newId() {

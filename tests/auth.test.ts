@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { handleLogin, handleRefresh, handleSignup } from "../src/features/auth/auth.services";
+import { revokeSession } from "../src/features/auth/session.repo";
 import { createTestDb, emailForTest, runMigrations, truncateAll } from "./setup";
 
 describe("auth services", () => {
@@ -71,19 +72,42 @@ describe("auth services", () => {
   });
 
   describe("refresh", () => {
-    it("returns a new access token from a valid refresh token", async () => {
+    it("returns a new access token from a valid refresh token and rotates the session", async () => {
       const email = emailForTest();
       await handleSignup(db, { email, password: "secret123", username: "testuser" });
       const { refreshToken } = await handleLogin(db, { email, password: "secret123" });
 
-      const newAccessToken = await handleRefresh(refreshToken);
+      const result = await handleRefresh(db, refreshToken);
 
-      expect(newAccessToken).toBeString();
+      expect(result.accessToken).toBeString();
+      expect(result.refreshToken).toBeString();
+      expect(result.refreshToken).not.toBe(refreshToken);
+
+      // old session is revoked → cannot be used again
+      expect(
+        handleRefresh(db, refreshToken),
+      ).rejects.toMatchObject({ status: 401 });
+      // rotated token still works
+      expect(
+        (await handleRefresh(db, result.refreshToken)).accessToken,
+      ).toBeString();
     });
 
     it("throws for invalid refresh token", async () => {
       expect(
-        handleRefresh("invalid-token"),
+        handleRefresh(db, "invalid-token"),
+      ).rejects.toMatchObject({ status: 401 });
+    });
+
+    it("throws after the session is revoked (logout)", async () => {
+      const email = emailForTest();
+      await handleSignup(db, { email, password: "secret123", username: "testuser" });
+      const { refreshToken } = await handleLogin(db, { email, password: "secret123" });
+
+      await revokeSession(db, refreshToken);
+
+      expect(
+        handleRefresh(db, refreshToken),
       ).rejects.toMatchObject({ status: 401 });
     });
   });

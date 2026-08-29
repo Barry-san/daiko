@@ -1,5 +1,4 @@
-# templates/node.dockerfile
-FROM go-slim
+FROM golang:1.24-slim
 
 WORKDIR /app
 COPY . .

@@ -1,7 +1,11 @@
 import { randomInt } from "node:crypto"
 import { StatusCodes } from "http-status-codes";
-import { AppError } from "@/lib/error";
-import { createEmailOTP, createOTP, getOTP, verifyUser } from "./otp.repo";
+import { createEmailOTP, createOTP, getOTP, verifyUser } from "@/features/otp/otp.repo"
+// import {
+//   createEmailJob
+// } from "@/lib/email";
+import { AppError }
+  from "@/lib/error";
 
 export async function handleCreateOTP(db: Bun.SQL, userId: string) {
   const otp = randomInt(1000000).toString().padStart(6, "0");
@@ -17,6 +21,21 @@ export async function handleCreateOTP(db: Bun.SQL, userId: string) {
 export async function handleVerifyOTP(db: Bun.SQL, otp: string, userId: string) {
   const otps = await getOTP(db, userId);
   const storedOTP = otps[0];
+  if(!storedOTP){
+    throw new AppError({
+      status: StatusCodes.NOT_FOUND,
+      message: "No valid otp."
+    })
+  }
+
+  console.log(storedOTP)
+
+  if (!storedOTP) {
+    throw new AppError({
+      status: StatusCodes.BAD_REQUEST,
+      message: "Invalid OTP. Request a new code.",
+    });
+  }
 
   if (new Date() > storedOTP.expires_at) {
     throw new AppError({

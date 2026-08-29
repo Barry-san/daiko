@@ -3,10 +3,12 @@
   "version": "1.0.50",
   "scripts": {
     "test": "bun test --preload ./tests/preload.ts",
-    "dev": "bun run --watch src/index.ts",
-    "workers": "bun run --watch workers/*"
+    "dev:server": "bun run --watch src/index.ts",
+    "dev:workers": "bun run --watch workers/*",
+    "dev": "bun run dev:server & bun run dev:workers & wait"
   },
   "dependencies": {
+    "@daiko/shared": "workspace:*",
     "@elysia/cors": "^1.4.2",
     "@elysia/jwt": "^1.4.2",
     "@elysia/openapi": "^1.4.15",

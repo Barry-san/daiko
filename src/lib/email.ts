@@ -1,5 +1,13 @@
+import { sql } from "bun"
 import { Resend } from "resend"
 import { ENV } from "./env"
+
+type EmailJob = {
+  email_id?: string,
+  type: "OTP" | "RESET",
+  recipient: string
+  content: string
+}
 
 type EmailPayload<T extends keyof EmailTemplate> = {
   recipient: string
@@ -34,4 +42,15 @@ export function sendEmail(type: keyof EmailTemplate, { recipient, variables }: E
       variables
     }
   })
+}
+
+export async function createEmailJob(db: Bun.SQL, job: EmailJob) {
+  try {
+
+  const res = await db`INSERT INTO emails ${sql(job)} returning *`
+  return res
+  }
+  catch (e) {
+    console.log(e)
+  }
 }

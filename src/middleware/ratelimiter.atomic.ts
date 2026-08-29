@@ -42,9 +42,7 @@ end
 `;
 
 function getIp(c: Context) {
-  const ip = c.server?.requestIP(c.request)?.address;
-  const forwarded = c.request.headers.get("X-Forwarded-For");
-  return forwarded?.split(",")[0]?.trim() || ip;
+  return c.server?.requestIP(c.request)?.address ?? null;
 }
 
 function createRateLimiter({

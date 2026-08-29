@@ -31,6 +31,15 @@ export async function getUser(db: Bun.SQL, email: string) {
   }
 }
 
+export async function getUserById(db: Bun.SQL, userId: string) {
+  try {
+    const user: User[] = await db`SELECT * from users where user_id = ${userId}`;
+    return user[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createOauthUser(db: Bun.SQL, user: Omit<OauthUser, "created_at">) {
   try {
     const res: OauthUser[] = await db`INSERT into oauth_users ${sql(user)} returning *`
@@ -42,6 +51,11 @@ export async function createOauthUser(db: Bun.SQL, user: Omit<OauthUser, "create
       status: 500
     })
   }
+}
+
+export async function updateUser(db: Bun.SQL, userId: string, fields: Partial<Omit<User, "user_id">>) {
+  const res = await db`UPDATE users SET ${sql(fields)} WHERE user_id = ${userId} RETURNING *`;
+  return res;
 }
 
 export type OauthUser = {

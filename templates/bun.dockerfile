@@ -1,8 +1,7 @@
-# templates/node.dockerfile
-FROM oven/bun:1-slim AS base
+FROM oven/bun:1-slim
 
 WORKDIR /app
-COPY package.json bun.lock ./
+COPY package*.json bun.lock* ./
 
 RUN bun install
 

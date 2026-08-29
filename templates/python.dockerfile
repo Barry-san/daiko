@@ -1,5 +1,4 @@
-# templates/node.dockerfile
-FROM python:4.10-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 COPY . .

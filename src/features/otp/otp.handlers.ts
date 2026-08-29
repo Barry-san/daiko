@@ -1,4 +1,4 @@
-import type { VerifyBody } from "@/schemas/auth.schema";
+import type { VerifyBody } from "@daiko/shared";
 import { handleCreateOTP, handleVerifyOTP } from "./otp.services";
 
 export const createOTPHandler = async ({ user, db }: { user: string; db: Bun.SQL }) => {

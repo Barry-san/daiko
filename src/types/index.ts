@@ -5,6 +5,7 @@ export type User = {
   password_hash: string;
   is_verified: boolean;
   created_at: Date;
+  deleted_at: Date | null;
 };
 
 export type Project = {
